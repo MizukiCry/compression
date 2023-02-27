@@ -27,16 +27,16 @@ void PrintBytes(const std::string& str) {
 
 int main() {
   std::string s1;
-  // const int OneGigaBytes = 1 * 1024 * 1024 * 1024;
-  // const size_t kMegaBytes = 1 * 1024 * 1024;
-  // const size_t kStringSize = 10 * kMegaBytes;
-  // s1.reserve(kStringSize);
-  // for (size_t i = 1; i <= kStringSize; ++i) {
-  //   s1.push_back(static_cast<char>(Rand(0, 127)));
-  // }
+  //   const int OneGigaBytes = 1 * 1024 * 1024 * 1024;
+  //   const size_t kMegaBytes = 1 * 1024 * 1024;
+  //   const size_t kStringSize = 10 * kMegaBytes;
+  //   s1.reserve(kStringSize);
+  //   for (size_t i = 1; i <= kStringSize; ++i) {
+  //     s1.push_back(static_cast<char>(Rand(0, 127)));
+  //   }
 
+  // s1 = "My name is Shirayuki Mizuki. Here is the text: aaaaaaaaaa.";
   std::fstream fs("./dic.txt");
-
   for (std::string tmp; fs >> tmp; s1 += tmp)
     ;
 
@@ -63,7 +63,7 @@ int main() {
             << s1.length() / 1024.0 / t1 << "MB / s\n";
 
   std::cout << "Compression ratio: " << std::fixed << std::setprecision(2)
-            << static_cast<double>(s2.size()) / s1.size() << "%\n";
+            << static_cast<double>(s2.size()) / s1.size() * 100.0 << "%\n";
 
   auto clock3 = std::chrono::steady_clock::now();
   std::string s3 = compression::lz77::Lz77DecompressToString(s2);
@@ -89,11 +89,13 @@ int main() {
 }
 
 /*
+CPU: i3-12100F
+
 Source size: 4.19MB
-Compression time: 8.534s
-Compression speed: 0.50MB / s
-Compression ratio: 0.69%
-Decompression time: 0.013s
-Decompression speed: 226.56MB / s
+Compression time: 2.194s
+Compression speed: 1.96MB / s
+Compression ratio: 69.50%
+Decompression time: 0.012s
+Decompression speed: 248.65MB / s
 Result correct. Congratulations!
 */

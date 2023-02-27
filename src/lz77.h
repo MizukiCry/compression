@@ -12,47 +12,16 @@
 namespace compression {
 namespace lz77 {
 
+const size_t kDefaultWindowSize = 1000;
+const size_t kMaxWindowSize = 0x2000;  // 13 bits
 const size_t kMinCompressionLength = 5;
-const size_t kDefaultWindowSize = 4096;
-
-void AppendVlqNumber(std::string& str, size_t value) {
-  if (value <= 0x7full) {
-    str.push_back(0x80 | value);
-    str.push_back(0);
-    return;
-  }
-  do {
-    const char c = value & 0x7f;
-    value >>= 7;
-    str.push_back(value > 0 ? c | 0x80 : c);
-  } while (value > 0);
-}
-
-bool AppendVlqNumber(uint8_t*& destination,
-                     const uint8_t* const destination_end, size_t value) {
-  if (value <= 0x7full) {
-    if (destination_end - destination < 2) {
-      return false;
-    }
-    *destination++ = 0x80 | value;
-    *destination++ = 0;
-    return true;
-  }
-  do {
-    if (destination == destination_end) {
-      return false;
-    }
-    const char c = value & 0x7f;
-    value >>= 7;
-    *destination++ = value > 0 ? c | 0x80 : c;
-  } while (value > 0);
-  return true;
-}
+const size_t kMaxCompressionLength = 0x3ff;  // 10 bits
 
 size_t LongestCommonPrefix(const uint8_t* a, const uint8_t* b,
                            size_t max_length) {
   size_t result = 0;
-  while (result < max_length && *(a + result) == *(b + result)) {
+  while (result < max_length && result < kMaxCompressionLength &&
+         *(a + result) == *(b + result)) {
     ++result;
   }
   return result;
@@ -62,6 +31,7 @@ std::pair<bool, size_t> Lz77CompressToDestination(
     const uint8_t* source, const uint8_t* const source_end,
     uint8_t* destination, const uint8_t* const destination_end,
     const size_t window_size = kDefaultWindowSize) {
+  assert(window_size <= kMaxWindowSize);
   const uint8_t* const source_begin = source;
   const uint8_t* const destination_begin = destination;
 
@@ -71,26 +41,34 @@ std::pair<bool, size_t> Lz77CompressToDestination(
     }
     size_t max_lcp = 0;
     size_t max_lcp_offset = 0;
-    for (size_t offset = 1; offset <= window_size && static_cast<size_t>(source - source_begin) >= offset; ++offset) {
+    for (size_t offset = 1;
+         offset <= window_size &&
+         static_cast<size_t>(source - source_begin) >= offset;
+         ++offset) {
       size_t lcp =
           LongestCommonPrefix(source - offset, source, source_end - source);
       if (lcp >= kMinCompressionLength && lcp > max_lcp) {
         max_lcp = lcp;
         max_lcp_offset = offset;
-        // if (lcp >= window_size) {
-        //   break;
-        // }
       }
     }
     if (max_lcp < kMinCompressionLength) {
+      if (*source == 0xff) {
+        *destination++ = 0xff;
+      }
+      if (destination == destination_end) {
+        return {false, 0};
+      }
       *destination++ = *source++;
     } else {
-      if (!AppendVlqNumber(destination, destination_end, max_lcp_offset)) {
+      if (destination_end - destination < 4) {
         return {false, 0};
       }
-      if (!AppendVlqNumber(destination, destination_end, max_lcp)) {
-        return {false, 0};
-      }
+      max_lcp_offset -= 1;
+      *destination++ = 0xff;
+      *destination++ = max_lcp_offset >> 6;
+      *destination++ = (max_lcp_offset & 0x3f) << 2 | (max_lcp >> 8);
+      *destination++ = max_lcp & 0xff;
       source += max_lcp;
     }
   }
@@ -111,6 +89,7 @@ std::pair<bool, size_t> Lz77CompressToDestination(
 std::string Lz77CompressToString(
     const uint8_t* source, const uint8_t* const source_end,
     const size_t window_size = kDefaultWindowSize) {
+  assert(window_size <= kMaxWindowSize);
   const uint8_t* const source_begin = source;
   std::string result;
   result.reserve(source_end - source);
@@ -118,36 +97,33 @@ std::string Lz77CompressToString(
   while (source != source_end) {
     size_t max_lcp = 0;
     size_t max_lcp_offset = 0;
-    for (size_t offset = 1; offset <= window_size && static_cast<size_t>(source - source_begin) >= offset; ++offset) {
+    for (size_t offset = 1;
+         offset <= window_size &&
+         static_cast<size_t>(source - source_begin) >= offset;
+         ++offset) {
       size_t lcp =
           LongestCommonPrefix(source - offset, source, source_end - source);
       if (lcp >= kMinCompressionLength && lcp > max_lcp) {
         max_lcp = lcp;
         max_lcp_offset = offset;
-        // if (lcp >= window_size) {
-        //   break;
-        // }
       }
     }
     if (max_lcp < kMinCompressionLength) {
+      if (*source == 0xff) {
+        result.push_back(0xff);
+      }
       result.push_back(*source++);
     } else {
-      AppendVlqNumber(result, max_lcp_offset);
-      AppendVlqNumber(result, max_lcp);
+      max_lcp_offset -= 1;
+      result.push_back(0xff);
+      result.push_back(max_lcp_offset >> 6);
+      result.push_back((max_lcp_offset & 0x3f) << 2 | (max_lcp >> 8));
+      result.push_back(max_lcp & 0xff);
       source += max_lcp;
     }
   }
 
   result.shrink_to_fit();
-  return result;
-}
-
-size_t ReadVlqNumber(const uint8_t*& source) {
-  size_t result = 0, offset = 0;
-  do {
-    result |= (*source & 0x7f) << offset;
-    offset += 7;
-  } while (*source++ > 0x7f);
   return result;
 }
 
@@ -162,22 +138,30 @@ std::string Lz77CompressToString(
 std::pair<bool, size_t> Lz77DecompressToDestination(
     const uint8_t* source, const uint8_t* const source_end,
     uint8_t* destination, const uint8_t* const destination_end) {
+  assert(source <= source_end);
+  assert(destination <= destination_end);
   const uint8_t* const destination_begin = destination;
   while (source != source_end) {
-    if (*source >> 7) {
-      if (destination == destination_end) {
-        return {false, 0};
-      }
+    if (destination == destination_end) {
+      return {false, 0};
+    }
+    if (*source != 0xff) {
       *destination++ = *source++;
     } else {
-      size_t offset = ReadVlqNumber(source);
-      size_t length = ReadVlqNumber(source);
-      if (length > static_cast<size_t>(destination_end - destination)) {
-        return {false, 0};
-      }
-      while (length--) {
-        *destination = *(destination - offset);
-        ++destination;
+      if (*++source == 0xff) {
+        *destination++ = 0xff;
+        ++source;
+      } else {
+        size_t offset = static_cast<size_t>(*source) << 6 | (*(source + 1) >> 2);
+        size_t lcp = static_cast<size_t>(*(source + 1) & 0x3) << 8 | *(source + 2);
+        source += 3;
+        if (static_cast<size_t>(destination_end - destination) < lcp) {
+          return {false, 0};
+        }
+        while (lcp--) {
+          *destination = *(destination - offset - 1);
+          ++destination;
+        }
       }
     }
   }
@@ -196,17 +180,24 @@ std::pair<bool, size_t> Lz77DecompressToDestination(
 
 std::string Lz77DecompressToString(const uint8_t* source,
                                    const uint8_t* const source_end) {
+  assert(source <= source_end);
   std::string result;
   result.reserve(source_end - source);
   while (source != source_end) {
-    if (*source >> 7) {
-      size_t offset = ReadVlqNumber(source);
-      size_t length = ReadVlqNumber(source);
-      while (length--) {
-        result.push_back(*(result.end() - offset));
-      }
-    } else {
+    if (*source != 0xff) {
       result.push_back(*source++);
+    } else {
+      if (*++source == 0xff) {
+        result.push_back(0xff);
+        ++source;
+      } else {
+        size_t offset = static_cast<size_t>(*source) << 6 | (*(source + 1) >> 2);
+        size_t lcp = static_cast<size_t>(*(source + 1) & 0x3) << 8 | *(source + 2);
+        source += 3;
+        while (lcp--) {
+          result.push_back(*(result.end() - offset - 1));
+        }
+      }
     }
   }
   return result;
