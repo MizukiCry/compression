@@ -1,0 +1,1 @@
+g++ test.cpp -o test -Wall -std=c++17 -O2 -Wextra
