@@ -10,6 +10,15 @@
 #include "lib.h"
 
 namespace compression {
+/*
+A symbol way of encoding & decoding in lz77:
+  For each value of uint_8 type:
+    0~254: literally
+    255(0xff):
+      followed by a 0xff: stand for a 0xff
+      not followed by 0xff:
+        followed by 24 bits(3 uint_8), like 0[13bits: offset][10bits: lcp_length]
+*/
 namespace lz77 {
 
 const size_t kDefaultWindowSize = 1000;
@@ -152,8 +161,10 @@ std::pair<bool, size_t> Lz77DecompressToDestination(
         *destination++ = 0xff;
         ++source;
       } else {
-        size_t offset = static_cast<size_t>(*source) << 6 | (*(source + 1) >> 2);
-        size_t lcp = static_cast<size_t>(*(source + 1) & 0x3) << 8 | *(source + 2);
+        size_t offset =
+            static_cast<size_t>(*source) << 6 | (*(source + 1) >> 2);
+        size_t lcp =
+            static_cast<size_t>(*(source + 1) & 0x3) << 8 | *(source + 2);
         source += 3;
         if (static_cast<size_t>(destination_end - destination) < lcp) {
           return {false, 0};
@@ -191,8 +202,10 @@ std::string Lz77DecompressToString(const uint8_t* source,
         result.push_back(0xff);
         ++source;
       } else {
-        size_t offset = static_cast<size_t>(*source) << 6 | (*(source + 1) >> 2);
-        size_t lcp = static_cast<size_t>(*(source + 1) & 0x3) << 8 | *(source + 2);
+        size_t offset =
+            static_cast<size_t>(*source) << 6 | (*(source + 1) >> 2);
+        size_t lcp =
+            static_cast<size_t>(*(source + 1) & 0x3) << 8 | *(source + 2);
         source += 3;
         while (lcp--) {
           result.push_back(*(result.end() - offset - 1));
